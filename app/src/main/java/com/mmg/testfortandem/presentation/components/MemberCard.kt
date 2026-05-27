@@ -46,7 +46,7 @@ fun MemberCard(
     modifier: Modifier = Modifier,
 ) {
     val member = likedMember.member
-    val learnsPhrase = languagesPhrase(member.learns)
+    val nativesPhrase = languagesPhrase(member.natives)
     val nativeCode = member.natives.firstOrNull()?.isoCode?.uppercase().orEmpty()
     val firstLearnCode = member.learns.firstOrNull()?.isoCode?.uppercase().orEmpty()
 
@@ -97,7 +97,7 @@ fun MemberCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = stringResource(R.string.member_bio_format, learnsPhrase),
+                text = stringResource(R.string.member_bio_format, nativesPhrase),
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
             )
@@ -193,7 +193,7 @@ private fun LanguageBadge(
 private fun languagesPhrase(languages: List<Language>): String {
     val and = stringResource(R.string.language_separator_and)
     val comma = stringResource(R.string.language_separator_comma)
-    val names = languages.map { it.displayName(Locale.getDefault()) }
+    val names = languages.map { it.displayName(Locale.ENGLISH) }
     return joinHumanReadable(names, separator = comma, lastSeparator = and)
 }
 
