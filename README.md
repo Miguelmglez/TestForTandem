@@ -1,12 +1,12 @@
 # Tandem Community
 
-Feed paginado de la comunidad de Tandem con reacciones "like" persistentes entre sesiones.
+Paginated Tandem community feed with persistent per-member like reactions.
 
 ---
 
-## Cómo ejecutarlo
+## Running
 
-Requiere Android Studio Ladybug o superior y JDK 17.
+Requires Android Studio Ladybug or newer and JDK 17.
 
 ```bash
 git clone <repo>
@@ -18,39 +18,39 @@ cd TandemCommunity
 
 ## Stack
 
-| Área | Tecnología |
+| Area | Technology |
 |---|---|
-| Lenguaje | Kotlin 2.1 |
+| Language | Kotlin 2.1 |
 | UI | Jetpack Compose + Material 3 |
 | DI | Hilt |
 | Async | Coroutines + Flow |
-| Red | Retrofit + OkHttp + kotlinx-serialization |
-| Base de datos | Room |
-| Paginación | Paging 3 |
-| Imágenes | Coil |
-| Tests | JUnit 4, MockK, Turbine, Truth |
+| Networking | Retrofit + OkHttp + kotlinx-serialization |
+| Database | Room |
+| Pagination | Paging 3 |
+| Images | Coil |
+| Testing | JUnit 4, MockK, Turbine, Truth |
 
-Versiones centralizadas en `gradle/libs.versions.toml`.
+Versions are centralised in `gradle/libs.versions.toml`.
 
 ---
 
-## Arquitectura
+## Architecture
 
 ```
-presentation/   ← Compose UI, ViewModels, eventos de UI
+presentation/   ← Compose UI, ViewModels, UI events
       │
       ▼
-domain/         ← Kotlin puro: entidades, interfaces de repositorio, use cases
+domain/         ← Pure Kotlin: entities, repository interfaces, use cases
       │
       ▼
-data/           ← Retrofit, Room, implementaciones, mappers
+data/           ← Retrofit, Room, implementations, mappers
 ```
 
-La capa de dominio no tiene dependencias de Android salvo `PagingData` (ver decisiones más abajo). La presentación nunca ve DTOs ni entidades de Room.
+The domain layer has no Android dependencies except `PagingData` (see trade-offs below). The presentation layer never sees DTOs or Room entities.
 
-### Flujo de datos reactivo
+### Reactive data flow
 
-El reto principal fue combinar dos fuentes reactivas independientes: el feed remoto paginado y el estado local de likes. La solución usa `combine` + `PagingData.map`:
+The main challenge was merging two independent reactive sources: the paginated remote feed and the local like state. The solution uses `combine` + `PagingData.map`:
 
 ```kotlin
 combine(pagerFlow, likedIdsFlow) { pagingData, likedIds ->
@@ -60,103 +60,102 @@ combine(pagerFlow, likedIdsFlow) { pagingData, likedIds ->
 }
 ```
 
-Cuando el usuario da like → Room persiste → Room emite el nuevo set → `combine` re-emite el paging data con los flags actualizados → Compose recompone solo las tarjetas afectadas. Sin invalidación manual, sin nueva llamada a red.
+When the user toggles a like → Room persists it → Room emits the new set → `combine` re-emits the paging data with updated flags → Compose recomposes only the affected cards. No manual invalidation, no network re-fetch.
 
 ---
 
-## Decisiones de diseño
+## Design decisions
 
-**¿Por qué `PagingSource` directo y no `RemoteMediator`?**
-`RemoteMediator` tiene sentido para soporte offline, pero la app no lo necesita. Añadirlo implicaría una tabla de caché en Room, paging keys e invalidación: complejidad sin beneficio real. Solo persisto lo que pertenece al dispositivo: el estado de likes.
+**Why `PagingSource` directly instead of `RemoteMediator`?**
+`RemoteMediator` makes sense for offline support, but the app doesn't need it. Adding it would mean a Room cache table, paging keys, and invalidation logic — complexity with no matching benefit. The only thing that truly belongs on the device is the user's like state.
 
-**¿Por qué `DataResult<T>` propio en vez de `Result<T>` o excepciones?**
-`Result<T>` de Kotlin solo transporta `Throwable`, así que los errores quedan sin tipo. Con una sealed class (`NoConnection`, `Timeout`, `Server`, `Unknown`) el compilador fuerza el manejo exhaustivo en cada `when`.
+**Why a custom `DataResult<T>` instead of `Result<T>` or exceptions?**
+Kotlin's `Result<T>` carries only `Throwable`, leaving errors untyped. A custom sealed class (`NoConnection`, `Timeout`, `Server`, `Unknown`) gives the compiler exhaustiveness checks at every `when`.
 
-**¿Por qué Room para los likes y no DataStore?**
-DataStore es suficiente para un booleano, pero Room da queries reactivos via `Flow` de serie y escala si algún día los likes llevan metadatos. El modelo es "presencia = liked": si la fila existe, el miembro está likeado. Sin columna `isLiked: Boolean` que mantener sincronizada.
+**Why Room for likes instead of DataStore?**
+DataStore would be sufficient for a simple boolean, but Room provides reactive queries via `Flow` out of the box and scales naturally if likes ever need metadata. The model is "presence equals liked": the row exists if the member is liked, absent otherwise — no `isLiked: Boolean` column to keep in sync.
 
-**¿Por qué use cases si son tan finos?**
-Actualmente cada use case envuelve una llamada al repositorio, pero el ViewModel no importa el repositorio directamente, lo que mantiene la capa de presentación desacoplada del contrato de datos. Si en el futuro hay que añadir analytics, validación o combinar varios repositorios, el sitio natural ya existe sin tocar el ViewModel.
+**Why keep use cases if they're so thin?**
+Each use case currently wraps a single repository call, but the ViewModel never imports the repository directly, keeping the presentation layer decoupled from the data contract. If analytics, validation, or multi-repository orchestration is needed in the future, the right place already exists without touching the ViewModel.
 
-**¿Por qué `LikedMember` como proyección separada?**
-El estado de like es información del usuario sobre un miembro, no una propiedad del miembro en sí. Separarlo significa que `CommunityMember` refleja fielmente los datos de la API y los mappers no saben nada de likes. Si aparecen otras proyecciones (bloqueado, favorito), componen igual de fácil.
+**Why `LikedMember` as a separate projection?**
+Like state is the user's opinion about a member, not a property of the member itself. Keeping it separate means `CommunityMember` faithfully reflects remote data and mappers know nothing about likes. Other projections (blocked, favourited) compose the same way.
 
-**¿Por qué `cachedIn(viewModelScope)` en el ViewModel?**
-Sin él, cada recomposición que recogiera el flow relanzaría la paginación desde la página 1. `cachedIn` materializa el `PagingData` en el scope del ViewModel y lo comparte entre recomposiciones y cambios de configuración.
+**Why `cachedIn(viewModelScope)` in the ViewModel?**
+Without it, every recomposition that re-collects the flow would restart pagination from page 1. `cachedIn` materialises the `PagingData` in the ViewModel scope, sharing it across recompositions and configuration changes.
 
-**¿Por qué un `Channel` para eventos en vez de estado?**
-El estado representa lo que la UI debe mostrar ahora. Los eventos puntuales (snackbars, errores de toggle) no son estado: deben dispararse exactamente una vez. Guardarlos en un `StateFlow` nullable obliga a limpiarlos manualmente y reaparecen en los cambios de configuración. `Channel.BUFFERED` + `receiveAsFlow` lo resuelve limpiamente.
-
----
-
-## Supuestos
-
-- **Fin de paginación**: se infiere por tamaño de respuesta (`< 20` miembros). La API no devuelve metadato explícito de última página. Una página final con exactamente 20 miembros haría falta un request extra para detectar el fin; lo acepto como caso improbable.
-- **Idioma nativo**: se muestra solo el primero del array `natives`, siguiendo la captura de referencia. El array completo de `learns` sí aparece en la bio.
-- **Miembros corruptos**: se descartan silenciosamente (ej: `firstName` vacío) para que un dato malo no envenene la página entera. En producción esto iría al sistema de logging.
-- **Likes huérfanos**: si un miembro likeado desaparece de la API, su like se conserva. Limpiarlos requeriría conocer el catálogo completo, que la API paginada no expone.
-- **Texto de la bio**: se genera en cliente desde el array `learns` porque el campo `topic` de la API no coincide con la captura de referencia.
-- **Nombre de idioma**: usa `Locale.forLanguageTag(...).getDisplayLanguage(...)` con el locale del dispositivo, así "en" se muestra como "English" o "inglés" según el teléfono.
+**Why a `Channel` for events instead of state?**
+State represents what the UI should show right now. One-shot events (snackbars, toggle errors) are not state — they should fire exactly once. Storing them as nullable `StateFlow` requires manual clearing and causes them to reappear on configuration change. `Channel.BUFFERED` + `receiveAsFlow` solves this cleanly.
 
 ---
 
-## Trade-offs y limitaciones conocidas
+## Assumptions
 
-- **`PagingData` en la capa de dominio** — acopla el dominio a AndroidX. La alternativa sería una abstracción `PagedStream<T>` propia con mapeo en la capa de datos. Pragmático sobre puro: el coste no está justificado a este tamaño.
-- **Sin tema oscuro** — la captura de referencia es solo light. La estructura del tema lo deja como extensión trivial.
-- **Sin tests de UI instrumentados** — la lógica de ViewModel y componentes puros está cubierta por tests unitarios. Los tests de Compose añadirían bastante boilerplate para aserciones tipo snapshot.
-- **Sin CI** — el siguiente paso natural sería un workflow de GitHub Actions con `./gradlew test` en cada push.
-- **Módulo único** — una división en `:core`, `:data`, `:feature-community` aceleraría builds incrementales. La estructura de paquetes ya respeta los límites que haría esa separación.
-
-### Con más tiempo añadiría
-
-1. CI en GitHub Actions (tests + lint).
-2. Detekt y ktlint con hook pre-push.
-3. Tests de snapshot del `MemberCard` con Paparazzi.
-4. Abstracción de logging en la capa de datos para los miembros descartados.
-5. Pull-to-refresh en el listado.
+- **End of pagination**: inferred from response size (`< 20` members). The API provides no explicit end-of-list metadata. A last page with exactly 20 members would require an extra request to detect the end; accepted as an unlikely edge case.
+- **Native language badge**: shows only the first entry from the `natives` array, matching the reference screenshot.
+- **Bio text**: generated client-side from the full `natives` array — "I can help you learn [native languages]". The API's `topic` field doesn't match the reference screenshot content.
+- **Corrupt members**: silently discarded (e.g. blank `firstName`) so a single bad entry doesn't poison the whole page. In production this would go to a structured logger.
+- **Orphaned likes**: if a liked member disappears from the API, their like is preserved. Cleaning them up would require knowing the full member catalogue, which the paginated API doesn't expose.
+- **Language display names**: always rendered in English via `Locale.ENGLISH`, regardless of the device locale.
 
 ---
 
-## Tests
+## Trade-offs and known limitations
+
+- **`PagingData` in the domain layer** — couples the domain to AndroidX. The alternative would be a custom `PagedStream<T>` abstraction with mapping in the data layer. Pragmatic over pure: the cost isn't justified at this scale.
+- **No dark theme** — the reference screenshot is light-only. The theme structure leaves dark mode as a trivial extension.
+- **No instrumented UI tests** — ViewModel and pure component logic is covered by unit tests. Compose UI tests would add significant boilerplate for what would amount to snapshot-style assertions.
+- **No CI** — the natural next step would be a GitHub Actions workflow running `./gradlew test` on every push.
+- **Single module** — a split into `:core`, `:data`, `:feature-community` would speed up incremental builds. The package structure already respects the boundaries that split would draw.
+
+### With more time I would add
+
+1. CI on GitHub Actions (tests + lint).
+2. Detekt and ktlint with a pre-push hook.
+3. Snapshot tests for `MemberCard` with Paparazzi.
+4. A logging abstraction in the data layer for discarded corrupt members.
+
+---
+
+## Testing
 
 ```bash
-./gradlew test                   # Tests unitarios (JVM)
-./gradlew connectedAndroidTest   # Tests instrumentados (DAO)
+./gradlew test                   # Unit tests (JVM)
+./gradlew connectedAndroidTest   # Instrumented tests (DAO)
 ```
 
-La estrategia prioriza ROI sobre cobertura como métrica. Los tests cubren:
+The strategy prioritises return-on-investment over coverage as a metric. Tests cover:
 
-- Invariantes de dominio (`Language`, `CommunityMember` rechazan datos inválidos)
-- Lógica de mapping (DTO → dominio: trimming, filtrado, validación)
-- Traducción de errores (`CommunityRemoteDataSource` convierte excepciones en `DataError`)
-- Persistencia reactiva (`LikedMemberDao` emite en cada cambio)
-- Comportamiento del ViewModel (`onLikeToggled` emite evento de fallo, silencioso en éxito)
-- Funciones puras (`joinHumanReadable`)
+- Domain invariants (`Language`, `CommunityMember` reject invalid input)
+- Mapping logic (DTO → domain: trimming, filtering, validation)
+- Error translation (`CommunityRemoteDataSource` converts exceptions into typed `DataError`s)
+- Reactive persistence (`LikedMemberDao` emits on every change)
+- ViewModel behaviour (`onLikeToggled` emits a failure event on error, stays silent on success)
+- Pure functions (`joinHumanReadable`)
 
-No están cubiertos: el wiring de Hilt (verificado en compilación), la interfaz de Retrofit, la configuración del `Pager` ni el layout de Compose.
+Explicitly not covered: Hilt module wiring (compile-time verified), the Retrofit interface, `Pager` configuration, and Compose screen layout.
 
 ---
 
-## Estructura del proyecto
+## Project structure
 
 ```
 app/src/main/java/com/mmg/testfortandem/
 ├── app/
 │   └── TandemApplication.kt
 ├── MainActivity.kt
-├── di/                       AppModule (red, base de datos), RepositoryModule
+├── di/                       AppModule (network, database), RepositoryModule
 ├── data/
-│   ├── remote/               API Retrofit, DTOs, mappers, data source remoto
-│   ├── local/                Room, DAOs, entidades, data source local
-│   ├── paging/               Implementación de PagingSource
-│   └── repository/           Implementación de CommunityRepository
+│   ├── remote/               Retrofit API, DTOs, mappers, remote data source
+│   ├── local/                Room, DAOs, entities, local data source
+│   ├── paging/               PagingSource implementation
+│   └── repository/           CommunityRepository implementation
 ├── domain/
 │   ├── model/                Language, CommunityMember, LikedMember
-│   ├── repository/           Interfaz CommunityRepository
+│   ├── repository/           CommunityRepository interface
 │   └── usecase/              ObserveCommunity, ObserveLikedIds, ToggleMemberLike
 └── presentation/
-    ├── community/            CommunityScreen, ViewModel, eventos de UI
-    ├── components/           MemberCard y subcomponentes
-    └── theme/                Tema Material 3
+    ├── community/            CommunityScreen, ViewModel, UI events
+    ├── components/           MemberCard and sub-components
+    └── theme/                Material 3 theme
 ```
