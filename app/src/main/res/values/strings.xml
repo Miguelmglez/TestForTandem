@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Tandem Community</string>
+    <string name="community_title">Community</string>
+
+    <!-- Member card -->
+    <string name="member_bio_format">I can help you learn %1$s.</string>
+    <string name="member_native_label">NATIVE</string>
+    <string name="member_learns_label">LEARNS</string>
+    <string name="member_badge_new">NEW</string>
+    <string name="member_picture_content_description">Profile picture of %1$s</string>
+    <string name="member_like_content_description">Like %1$s</string>
+    <string name="member_unlike_content_description">Unlike %1$s</string>
+
+    <!-- States -->
+    <string name="error_generic">Something went wrong. Pull to retry.</string>
+    <string name="error_no_connection">No internet connection.</string>
+    <string name="error_timeout">The request timed out.</string>
+    <string name="error_toggle_like">Could not update like</string>
+    <string name="action_retry">Retry</string>
+
+    <!-- Languages list (used to join "EN" + "ES" → "English and Spanish") -->
+    <string name="language_separator_and">" and "</string>
+    <string name="language_separator_comma">", "</string>
+</resources>
